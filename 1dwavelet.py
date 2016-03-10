@@ -21,19 +21,27 @@ class Grid:
     def __init__(self, noElements):
         self.noElements = noElements
 
-        self.cells = [Cells()] * noElements
+        self.cells = [None] * noElements
 
         self.u = np.zeros((noElements, 3), dtype = float)
 
     def initMesh(self, x, connectivity):
         for i in range(self.noElements):
+            self.cells[i] = Cells()
             self.cells[i].cellDefinition(i, x[i], x[i+1])
+        self.connectivity = connectivity
+
 
 
 class Solver:
 
     def __init__(self):
         return
+
+    def initSolver(self, grid):
+        self.grid = grid
+
+
 
 
 
@@ -63,11 +71,25 @@ if __name__=="__main__":
 
     x = np.linspace(xMin,xMax, nx)
 
-    grid = Grid(nx-1)
-    grid.initMesh(x)
+    """
+    Connectivity data. 0 index has left cell, 1 has right cell
+    """
+    connectivity = np.zeros((nx-1, 2), dtype = float)
+
+    for i in range(1, nx-2):
+        connectivity[i, 0] = i-1
+        connectivity[i, 1] = i+1
+    
+    connectivity[0, 0] = -1
+    connectivity[0, 1] = 1
+    connectivity[-1, 0] = nx-3 
+    connectivity[-1, 1] = -1
+
+    grid = Grid(noElements = nx-1)
+    grid.initMesh(x, connectivity)
 
     gamma = 1.4
     initSol(grid.cells, grid.u, gamma)
 
-
     run = Solver() 
+    run.initSolver(grid)
