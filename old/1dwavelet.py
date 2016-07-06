@@ -35,13 +35,19 @@ class Grid:
 
 class Solver:
 
-    def __init__(self):
+    def __init__(self, gamma):
+        self.gamma = gamma
         return
 
     def initSolver(self, grid):
         self.grid = grid
 
+    def evaluateRhs(self, grid):
+        for i in range(grid.noElements):
+            self.grid.connectivity[i]
 
+                  
+        return 
 
 
 
@@ -52,6 +58,9 @@ def initSol(cells, u, gamma):
     """
     for i, cell_i in enumerate(cells):
         x_i = 0.5*(cell_i.startX+cell_i.stopX)
+        """
+        Values assigned at cell-centers
+        """
         if (x_i < 0):
             u[i, 0] = 1
             u[i, 1] = 0
@@ -68,6 +77,7 @@ if __name__=="__main__":
     xMin = -10
     xMax =  10
     nx = 1001
+    dt = 1e-4
 
     x = np.linspace(xMin,xMax, nx)
 
@@ -91,5 +101,8 @@ if __name__=="__main__":
     gamma = 1.4
     initSol(grid.cells, grid.u, gamma)
 
-    run = Solver() 
+    run = Solver(gamma) 
     run.initSolver(grid)
+
+    for i in range(0,1):
+        grid.u = grid.u + dt*run.evaluateRhs(grid)
