@@ -3,6 +3,47 @@ import numpy as np
 
 class Poly:
 
+    def lagrange_right(self, order):
+        """
+        Lagrange interpolation matrix at right boundary 
+        """
+        nodes = self.gaussNodes(order)
+        return self.lagrangeInterpolate(nodes,  1.0) 
+
+    def lagrange_left(self, order):
+        """
+        Lagrange interpolation matrix at right boundary 
+        """
+        nodes = self.gaussNodes(order)
+        return self.lagrangeInterpolate(nodes, -1.0) 
+
+
+    def lagrangeInterpolate(self, nodes, x):
+        """
+        Lagrange interpolation matrix at a particular point 
+        """
+        phi = self.lagrange(nodes)
+        l_I = np.zeros((len(nodes)))
+        
+        r = sympy.Symbol('r')
+
+        for i in range(len(nodes)):
+            l_I[i] = phi[i].evalf(subs = {r: x})
+        return l_I 
+
+    def lagrange(self, nodes):
+        """
+        Lagrange polynomial 
+        """
+        length = len(nodes)
+        r = sympy.Symbol('r')
+        phi = sympy.ones(1, length)
+        for k in range(length):
+            for l in range(length):
+                if (k != l):
+                    phi[k] *= (r - nodes[l])/(nodes[k] - nodes[l])
+        return phi 
+
 
     def lagrangeDeri(self, nodes):
         """
@@ -111,25 +152,16 @@ class Poly:
 
     def gaussNodes(self, order):
         """
+        /////////////////////
+        All nodes should be defined in the domain [-1, 1]
+        ////////////////////
         Return Gauss nodes
         """
         assert(order) > 0
         numNodes = order + 1
-        nodes = np.zeros(numNodes)
-        if numNodes == 2:
-            nodes[0] = -0.577350
-            nodes[1] =  0.577350
-        elif numNodes == 3:
-            nodes[0] = -0.774597
-            nodes[1] =  0
-            nodes[2] =  0.774597
-        elif numNodes == 4:
-            nodes[0] = -0.861136
-            nodes[1] = -0.339981
-            nodes[2] =  0.339981
-            nodes[3] =  0.861136
-        else:
-            raise Exception("Order not supported")
+
+        nodes = np.polynomial.legendre.leggauss(numNodes)[0] 
+
         return nodes
 
 
@@ -137,6 +169,32 @@ class Poly:
 
 if __name__=="__main__":
     run = Poly()
+
+    order = 1
+    nodes = run.gaussNodes(order)
+
+    phi  = run.lagrange(nodes)
+#    print(phi)
+    l_I  = run.lagrangeInterpolate(nodes, -1)
+#    print(l_I)
+
+#    print(nodes)
+#    dPhi  = run.lagrangeDeri(nodes)
+#    print(dPhi)
+#    import numpy.linalg as nplg
+#    a = np.zeros((order + 1, order + 1))
+#    for i in range(order + 1):
+#        for j in range(order + 1):
+#            a[i, j] = float(dPhi[i, j])
+#    print(nplg.eig(a))
+#
+#    r = sympy.Symbol('r')
+#    for order in range(1, 4):
+#        print(order)
+#        leg = run.legendre(order)
+#        print(leg)
+#        print(leg.evalf(subs = {r: 0.0}))
+#
 
 #    nodes = np.zeros(2)
 #    nodes[0] = -0.577350
@@ -150,18 +208,16 @@ if __name__=="__main__":
 #    print(dg_r)
 
     
-    nodes = np.zeros(3)
-    nodes[0] = -0.774597
-    nodes[1] =  0 
-    nodes[2] =  0.774597
+#    nodes = np.zeros(3)
+#    nodes[0] = -0.774597
+#    nodes[1] =  0 
+#    nodes[2] =  0.774597
 #    dPhi = run.lagrangeDeri(nodes)
 #    print(dPhi)
 #    legDPhi = run.legendreDeri(2, nodes)
 #    print(legDPhi)
-    dg_l = run.leftRadauDeri(2, nodes)
-    dg_r = run.rightRadauDeri(2, nodes)
-    print(dg_l)
-    print(dg_r)
+#    dg_l = run.leftRadauDeri(2, nodes)
+#    dg_r = run.rightRadauDeri(2, nodes)
 
 
 #    
