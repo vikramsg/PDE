@@ -119,11 +119,11 @@ class Poly:
         p = self.legendre(order)
         p1 = self.legendre(order+1)
 
-        dg_l = sympy.zeros(length, length)
+        dg_l = np.zeros(length)
 
         for i in range(length):
-            dg_l[i, i] = sympy.diff(p).evalf(subs = {r: nodes[i]})
-            dg_l[i, i] -= sympy.diff(p1).evalf(subs = {r: nodes[i]})
+            dg_l[i]  = sympy.diff(p).evalf(subs = {r: nodes[i]})
+            dg_l[i] -= sympy.diff(p1).evalf(subs = {r: nodes[i]})
         dg_l *= (-1)**order/2
                 
         return dg_l 
@@ -140,13 +140,13 @@ class Poly:
         p = self.legendre(order)
         p1 = self.legendre(order+1)
 
-        dg_r = sympy.zeros(length, length)
+        dg_r = np.zeros(length)
 
         for i in range(length):
-            dg_r[i, i] = sympy.diff(p).evalf(subs = {r: nodes[i]})
-            dg_r[i, i] += sympy.diff(p1).evalf(subs = {r: nodes[i]})
+            dg_r[i]  = sympy.diff(p).evalf(subs = {r: nodes[i]})
+            dg_r[i] += sympy.diff(p1).evalf(subs = {r: nodes[i]})
         dg_r *= 1/2
-                
+        
         return dg_r 
 
 
@@ -196,15 +196,15 @@ if __name__=="__main__":
 #        print(leg.evalf(subs = {r: 0.0}))
 #
 
-#    nodes = np.zeros(2)
-#    nodes[0] = -0.577350
-#    nodes[1] =  0.577350
+    nodes = np.zeros(2)
+    nodes[0] = -0.577350
+    nodes[1] =  0.577350
 #    dPhi = run.lagrangeDeri(nodes)
 #    print(dPhi)
 #    legDPhi = run.legendreDeri(1, nodes)
 #    print(legDPhi)
-#    dg_l = run.leftRadauDeri(1, nodes)
-#    dg_r = run.rightRadauDeri(1, nodes)
+    dg_l = run.leftRadauDeri(1, nodes)
+    dg_r = run.rightRadauDeri(1, nodes)
 #    print(dg_r)
 
     
