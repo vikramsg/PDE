@@ -75,11 +75,12 @@ class Poly:
         P_1 = r
         (k+1)P_(k+1) = (2k+1)rP_k - kP_(k-1)
         """
-        assert(order > 0)
         assert(int(order) == order) #Integer check
         r = sympy.Symbol('r')
         p_0 = 1
         p_1 = r
+        if order == 0:
+            return p_0
         if order == 1:
             return p_1
         else:
@@ -163,6 +164,88 @@ class Poly:
         nodes = np.polynomial.legendre.leggauss(numNodes)[0] 
 
         return nodes
+    
+    def vandermonde(self, order, nodes):
+        '''
+        Create Vandermonde matrix to convert from Lagrange to Legendre
+        '''
+        r = sympy.Symbol('r')
+
+        Np  = order + 1
+        van = np.zeros((Np, Np))
+
+        for i in range(Np):
+            for j in range(Np):
+                gamma     = 2.0/(2*j + 1)
+                leg       = self.legendre(j)/np.sqrt(gamma)
+                if isinstance(leg, float) :
+                    van[i, j] = leg 
+                else:
+                    van[i, j] = leg.evalf(subs = {r: nodes[i]})
+        return van
+
+    
+    def lagToLeg(self, order, nodes, van):
+        '''
+        Convert Lagrange poly to normalized Legendre
+        '''
+        r   = sympy.Symbol('r')
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+
+        Prin = False 
+        if Prin:
+            for i in range(Np):
+                gamma     = 2.0/(2*i + 1)
+                leg       = self.legendre(i)/np.sqrt(gamma)
+    
+                print((P[i] - leg).simplify()) # Should be zero
+                print(i, P[i].evalf(subs = {r: 1}), lag[i].evalf(subs = {r: 1}))
+
+        return P
+
+    def modLagToLeg(self, order, nodes, van):
+        '''
+        Convert Lagrange poly to normalized Legendre
+        '''
+        r   = sympy.Symbol('r')
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+
+        # Lag from Leg
+        inv_vanT = np.linalg.inv(van.T)
+        lag = sympy.zeros(1, Np)
+        for i in range(Np):
+            for j in range(Np):
+                lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
+                
+            print(i, lag[i].evalf(subs = {r: 1}))
+
+
+        Prin = False 
+        if Prin:
+            for i in range(Np):
+                gamma     = 2.0/(2*i + 1)
+                leg       = self.legendre(i)/np.sqrt(gamma)
+    
+                print((P[i] - leg).simplify()) # Should be zero
+                print(i, P[i].evalf(subs = {r: 1}), lag[i].evalf(subs = {r: 1}))
+
+        return P
 
 
 
@@ -173,9 +256,12 @@ if __name__=="__main__":
     order = 1
     nodes = run.gaussNodes(order)
 
-    phi  = run.lagrange(nodes)
+    van   = run.vandermonde(order, nodes)
+    run.modLagToLeg(order, nodes, van)
+
+#    phi  = run.lagrange(nodes)
 #    print(phi)
-    l_I  = run.lagrangeInterpolate(nodes, -1)
+#    l_I  = run.lagrangeInterpolate(nodes, -1)
 #    print(l_I)
 
 #    print(nodes)
@@ -196,15 +282,15 @@ if __name__=="__main__":
 #        print(leg.evalf(subs = {r: 0.0}))
 #
 
-    nodes = np.zeros(2)
-    nodes[0] = -0.577350
-    nodes[1] =  0.577350
+#    nodes = np.zeros(2)
+#    nodes[0] = -0.577350
+#    nodes[1] =  0.577350
 #    dPhi = run.lagrangeDeri(nodes)
 #    print(dPhi)
 #    legDPhi = run.legendreDeri(1, nodes)
 #    print(legDPhi)
-    dg_l = run.leftRadauDeri(1, nodes)
-    dg_r = run.rightRadauDeri(1, nodes)
+#    dg_l = run.leftRadauDeri(1, nodes)
+#    dg_r = run.rightRadauDeri(1, nodes)
 #    print(dg_r)
 
     
