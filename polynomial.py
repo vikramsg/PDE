@@ -178,11 +178,45 @@ class Poly:
             for j in range(Np):
                 gamma     = 2.0/(2*j + 1)
                 leg       = self.legendre(j)/np.sqrt(gamma)
-                if isinstance(leg, float) :
+                if isinstance(leg, float) or isinstance(leg, int):
                     van[i, j] = leg 
                 else:
                     van[i, j] = leg.evalf(subs = {r: nodes[i]})
+
         return van
+    
+    
+    def filterVandermonde(self, order, nodes):
+        '''
+        Create filtered Vandermonde matrix to convert from Lagrange to Legendre
+        '''
+        r = sympy.Symbol('r')
+
+        Np  = order + 1
+        van = np.zeros((Np, Np))
+
+        filterP = 9 
+
+        eps   =  np.finfo(float).eps
+        alpha = -np.log10(eps)
+
+        for i in range(Np):
+            for j in range(Np):
+                nByN  = j/(Np - 1)
+                sigma = np.exp(-alpha*(nByN)**(filterP))
+
+                if (j == 1):
+                    sigma = 1.0
+
+                gamma     = 2.0/(2*j + 1)
+                leg       = sigma*self.legendre(j)/np.sqrt(gamma)
+                if isinstance(leg, float) or isinstance(leg, int):
+                    van[i, j] = leg 
+                else:
+                    van[i, j] = leg.evalf(subs = {r: nodes[i]})
+
+        return van
+
 
     
     def lagToLeg(self, order, nodes, van):
@@ -211,11 +245,12 @@ class Poly:
 
         return P
 
-    def modLagToLeg(self, order, nodes, van):
+    def modLagToLeg(self, order, nodes):
         '''
         Convert Lagrange poly to normalized Legendre
         '''
         r   = sympy.Symbol('r')
+        van = self.vandermonde(order, nodes)
         phi = self.lagrange(nodes)
 
         Np  = order + 1
@@ -232,20 +267,207 @@ class Poly:
         for i in range(Np):
             for j in range(Np):
                 lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
-                
-            print(i, lag[i].evalf(subs = {r: 1}))
+#                print(inv_vanT[i, j], P[j].evalf(subs = {r: 1}))
 
-
-        Prin = False 
+        Prin = True 
         if Prin:
+            wts = np.polynomial.legendre.leggauss(Np)[1]
+
             for i in range(Np):
                 gamma     = 2.0/(2*i + 1)
                 leg       = self.legendre(i)/np.sqrt(gamma)
     
-                print((P[i] - leg).simplify()) # Should be zero
-                print(i, P[i].evalf(subs = {r: 1}), lag[i].evalf(subs = {r: 1}))
+#                print((P[i] - leg).simplify()) # Should be zero
 
-        return P
+#                print(i, P[i].evalf(subs = {r: 1}), lag[i].evalf(subs = {r: 1})) 
+
+            '''
+            Show that Lagrange polynomials evaluated at the right corner
+            is the same as rightRadauDeri evaluated at the nodes
+            '''
+#            print(lag.evalf(subs = {r: nodes[0]}), wts*self.rightRadauDeri(order, nodes))
+
+        return lag
+
+
+
+    def krivodInterpolate(self, nodes, order, c_fac, x):
+        """
+        Krivodnova interpolation matrix at a particular point 
+        """
+        l_I = np.zeros((len(nodes)))
+        
+        r   = sympy.Symbol('r')
+        van = self.vandermonde(order, nodes)
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+
+        P[Np - 1] = c_fac*P[Np - 1]
+
+        # Lag from Leg
+        inv_vanT = np.linalg.inv(van.T)
+        lag = sympy.zeros(1, Np)
+        for i in range(Np):
+            for j in range(Np):
+                lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
+
+        for i in range(len(nodes)):
+            l_I[i] = lag[i].evalf(subs = {r: x})
+
+        return l_I
+
+
+    def getFilterRight(self, order, nodes):
+        '''
+        Convert correction polynomial to filtered polynomial 
+        '''
+        r   = sympy.Symbol('r')
+        van = self.vandermonde(order, nodes)
+
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+    
+        eps   =  np.finfo(float).eps
+        alpha = -np.log10(eps)
+        for i in range(Np):
+            nByN  = i/(Np - 1)
+            sigma = np.exp(-alpha*(nByN)**(9))
+            P[i]  = P[i]*sigma
+
+        
+        # Lag from Leg
+        inv_vanT = np.linalg.inv(van.T)
+        lag = sympy.zeros(1, Np)
+        for i in range(Np):
+            for j in range(Np):
+                lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
+                
+        k_r = np.zeros(Np)
+        wts = np.polynomial.legendre.leggauss(Np)[1]
+        for i in range(Np):
+            k_r[i] = lag[i].evalf(subs = {r: 1})/wts[i]
+
+        return k_r
+
+    def getFilterLeft(self, order, nodes):
+        '''
+        Convert correction polynomial to filtered polynomial 
+        '''
+        r   = sympy.Symbol('r')
+        van = self.vandermonde(order, nodes)
+
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+
+        eps   =  np.finfo(float).eps
+        alpha = -np.log10(eps)
+        for i in range(Np):
+            nByN  = i/(Np - 1)
+            sigma = np.exp(-alpha*(nByN)**(9))
+            P[i]  = P[i]*sigma
+
+        # Lag from Leg
+        inv_vanT = np.linalg.inv(van.T)
+        lag = sympy.zeros(1, Np)
+        for i in range(Np):
+            for j in range(Np):
+                lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
+                
+        k_l = np.zeros(Np)
+        wts = np.polynomial.legendre.leggauss(Np)[1]
+        for i in range(Np):
+            k_l[i] = -1*lag[i].evalf(subs = {r: -1})/wts[i]
+            
+        return k_l
+
+
+
+    def getKrivodRight(self, order, nodes, correcFac):
+        '''
+        Convert Lagrange poly to normalized Legendre
+        '''
+        r   = sympy.Symbol('r')
+        van = self.vandermonde(order, nodes)
+
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+        
+        P[Np - 1] = correcFac*P[Np - 1]
+
+        # Lag from Leg
+        inv_vanT = np.linalg.inv(van.T)
+        lag = sympy.zeros(1, Np)
+        for i in range(Np):
+            for j in range(Np):
+                lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
+                
+        k_r = np.zeros(Np)
+        wts = np.polynomial.legendre.leggauss(Np)[1]
+        for i in range(Np):
+            k_r[i] = lag[i].evalf(subs = {r: 1})/wts[i]
+
+        return k_r
+
+    def getKrivodLeft(self, order, nodes, correcFac):
+        '''
+        Convert Lagrange poly to normalized Legendre
+        '''
+        r   = sympy.Symbol('r')
+        van = self.vandermonde(order, nodes)
+
+        phi = self.lagrange(nodes)
+
+        Np  = order + 1
+        P   = sympy.zeros(1, Np)
+
+        # Leg from Lag
+        for i in range(Np):
+            for j in range(Np):
+                P[i] = P[i] + van.T[i, j] * phi[j] # V^T . l
+
+        P[Np - 1] = correcFac*P[Np - 1]
+
+        # Lag from Leg
+        inv_vanT = np.linalg.inv(van.T)
+        lag = sympy.zeros(1, Np)
+        for i in range(Np):
+            for j in range(Np):
+                lag[i] = lag[i] + inv_vanT[i, j] * P[j] # (V^T)^-1 . P
+                
+        k_l = np.zeros(Np)
+        wts = np.polynomial.legendre.leggauss(Np)[1]
+        for i in range(Np):
+            k_l[i] = -1*lag[i].evalf(subs = {r: -1})/wts[i]
+            
+        return k_l
 
 
 
@@ -253,11 +475,21 @@ class Poly:
 if __name__=="__main__":
     run = Poly()
 
-    order = 1
+    order = 4
     nodes = run.gaussNodes(order)
 
+    f_r = run.getFilterRight(order, nodes)
+    f_l = run.getFilterLeft (order, nodes)
+
+    k_r  = run.getKrivodRight(order, nodes, 1)
+    k_l  = run.getKrivodLeft(order,  nodes, 1)
+    
     van   = run.vandermonde(order, nodes)
-    run.modLagToLeg(order, nodes, van)
+    vanF  = run.filterVandermonde(order, nodes)
+
+#    lag = run.modLagToLeg(order, nodes)
+#    x = 1.0; 
+#    run.krivodInterpolate(nodes, order, x)
 
 #    phi  = run.lagrange(nodes)
 #    print(phi)
