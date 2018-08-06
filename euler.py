@@ -131,23 +131,23 @@ class EulerDG:
         var_dim  = u_d.shape[0] #variable dimension of equation (=3 for Euler equations)
         elements = u_d.shape[1] #Num of elements
 
-        u_I = np.zeros((var_dim, elements, 2))
+        f_I = np.zeros((var_dim, elements, 2))
 
         # Pure upwinding
         for i in range(var_dim):
             for j in range(1, elements - 1):
-                u_I[i, j, 0] = u_d[i , j - 1, 1] 
-                u_I[i, j, 1] = u_d[i , j    , 1] 
+                f_I[i, j, 0] = f_d[i , j - 1, 1] 
+                f_I[i, j, 1] = f_d[i , j    , 1] 
 
         # Periodic boundary
         for i in range(var_dim):
-            u_I[i,   0  , 0] = u_d[i, elements - 1, 1] 
-            u_I[i,   0  , 1] = u_d[i, 0           , 1] 
+            f_I[i,   0  , 0] = f_d[i, elements - 1, 1] 
+            f_I[i,   0  , 1] = f_d[i, 0           , 1] 
 
-            u_I[i, elements - 1, 0] = u_d[i, elements - 2, 1] 
-            u_I[i, elements - 1, 1] = u_d[i, elements - 1, 1] 
+            f_I[i, elements - 1, 0] = f_d[i, elements - 2, 1] 
+            f_I[i, elements - 1, 1] = f_d[i, elements - 1, 1] 
 
-        return u_I
+        return f_I
 
 
 
@@ -258,7 +258,7 @@ class EulerDG:
 
         it_coun = 0
         while (T < T_final) :
-            u   = self.euler(dt, u, self.dg) 
+            u   = self.ssp_rk43(dt, u, self.dg) 
 
             T       = T + dt_real
             dt_real = min(dt, T_final - T)
@@ -268,8 +268,33 @@ class EulerDG:
 
             it_coun  = it_coun + 1
 
-#        self.u = u
-        
+        self.u = u
+
+        self.plot(self.intPoints, u, 0)
+ 
+    def plot(self, x, u, vDim):
+        '''
+        vDim is the particular dimension that will be plotted
+        '''
+        var_dim  = u.shape[0] #variable dimension of equation (=3 for Euler equations)
+        elements = u.shape[1] #Num of elements
+        Np       = u.shape[2] #Num of soln points
+
+        size     = elements*Np
+
+        xv       = np.zeros((size))
+        uv       = np.zeros((size))
+
+        coun = 0
+        for i in range(elements):
+            for j in range(Np):
+                xv[coun] = x[      i, j]
+                uv[coun] = u[vDim, i, j]
+                coun     = coun + 1
+
+        plt.plot(xv, uv)
+
+        plt.show(       )
  
 
 if __name__=="__main__":
@@ -285,9 +310,9 @@ if __name__=="__main__":
     '''
     run     = EulerDG(order, elements, startX, stopX)
 
-    dt      = 0.0001 
+    dt      = 0.002
 
-    T_final = 8.0
+    T_final = 0.25
     run.euler_solver(dt, T_final)
 
 
