@@ -24,7 +24,9 @@ class EulerDG:
         self.startX   = startX 
         self.stopX    = stopX
 
-        self.x_r, self.intPoints = self.dgMesh(self.elements, self.startX, self.stopX, self.order)
+        self.num_faces = elements + 1
+
+        self.x_r, self.intPoints, self.f2e = self.dgMesh(self.elements, self.startX, self.stopX, self.order)
 
         self.u   = np.zeros( self.var_dim*self.elements*self.Np )
         
@@ -65,7 +67,31 @@ class EulerDG:
             for j in range(Np):
                 intPoints[i, j] = 0.5*(1 - gaussNodes[j])*grid[i, 0] + 0.5*(1 + gaussNodes[j])*grid[i, 1] 
 
-        return(x_r, intPoints)
+        # (showing 1 interior node)
+        # Faces:
+        #    0         1         2         3         4
+        #    *----x----*----x----*----x----*----x----*
+        #    Elements:
+        #        (0)       (1)       (2)       (3)
+
+        # Creating face connectivity
+
+        num_faces = elements + 1
+
+        f2e = np.zeros( (num_faces, 2) ) # 0: Left element, 1: Right element
+
+        for i in range(1, num_faces - 1):
+            f2e[i, 0] = i - 1
+            f2e[i, 1] = i 
+
+        # Periodic boundaries
+        f2e[0,             0] = elements - 1 
+        f2e[0,             1] = 0 
+
+        f2e[num_faces - 1, 0] = elements - 1 
+        f2e[num_faces - 1, 1] = 0 
+
+        return(x_r, intPoints, f2e)
 
 
     def project(self, fn, x, u):
@@ -209,43 +235,82 @@ class EulerDG:
         return Dx
 
 
-    def getLeftFaceProj(self): 
+    def getFaceProj(self): 
+        """
+        Get face projections matrices
+        P_L projects solution vector to left side of faces
+        P_R projects solution vector to rght side of faces
+        """
         var_dim   = self.var_dim
 
         elements  = self.elements 
         Np        = self.Np       
 
+        num_faces = self.num_faces
+
         l_R       = self.l_R  
         l_L       = self.l_L 
         
-        P_L      = np.zeros( (var_dim*elements, var_dim*elements*Np) )
+        f2e       = self.f2e
+        
+        P_L       = np.zeros( (var_dim*num_faces, var_dim*elements*Np) )
+        P_R       = np.zeros( (var_dim*num_faces, var_dim*elements*Np) )
 
         size = elements*Np
-        for i in range(elements):
+        for i in range(num_faces):
+            left = f2e[i, 0]
+            rght = f2e[i, 1]
             for vd in range(var_dim):
-                P_L[i*var_dim + vd, (i*var_dim + vd)*Np:(i*var_dim + vd + 1)*Np] = l_L 
+                P_L[vd*num_faces + i, size*vd + left*Np:size*vd + left*Np + Np] = l_L 
+                P_R[vd*num_faces + i, size*vd + rght*Np:size*vd + rght*Np + Np] = l_R 
 
-#        self.plot_coo_matrix(DF_L)
+#        self.plot_coo_matrix(P_R)
 
-        return P_L
+        return P_L, P_R
 
-    def getRghtFaceProj(self): 
+
+    def getDF_du_l(self, u): # Get DF(u_L)/Du_L :Requires Jacobian matrix of u_L 
         var_dim   = self.var_dim
-
         elements  = self.elements 
-        Np        = self.Np       
+        num_faces = self.num_faces
+        Np        = self.Np      
 
-        l_R       = self.l_R  
-        l_L       = self.l_L 
-        
-        P_R      = np.zeros( (var_dim*elements, var_dim*elements*Np) )
+        gamm      = self.gamm
 
-        size = elements*Np
-        for i in range(elements):
-            for vd in range(var_dim):
-                P_R[i*var_dim + vd, (i*var_dim + vd)*Np:(i*var_dim + vd + 1)*Np] = l_R 
+        P_l, P_r  = self.getFaceProj()  
+    
+        u_l = np.dot(P_l, u) # Get face projections on the left side
+        u_r = np.dot(P_r, u) # Get face projections on the rght side
 
-        return P_R
+        df_dul = np.zeros( (var_dim*num_faces, var_dim*num_faces) )
+        df_dur = np.zeros( (var_dim*num_faces, var_dim*num_faces) )
+
+#        for i in range(var_dim*num_faces):
+#            print(u_l[i], u_r[i])
+
+        u_f_l = np.zeros(var_dim)
+        u_f_r = np.zeros(var_dim)
+        for i in range(num_faces):
+            for j in range(var_dim):
+                u_f_l[j] = u_l[j*num_faces + i]
+                u_f_r[j] = u_r[j*num_faces + i]
+            j_p_l = self.getPointEulerJacobian(var_dim, gamm, u_f_l)
+            j_p_r = self.getPointEulerJacobian(var_dim, gamm, u_f_r)
+#            print(np.dot(j_p, u_f))
+
+            for v1 in range(var_dim):
+                for v2 in range(var_dim):
+                    df_dul[v1*num_faces + i, v2*num_faces + i] = j_p_l[v1, v2] 
+                    df_dur[v1*num_faces + i, v2*num_faces + i] = j_p_r[v1, v2] 
+
+#            print(df_dul)
+
+#        self.plot_coo_matrix(df_dul)
+
+#        print(u_l)
+        print(np.dot(df_dul, u_l))
+        print(np.dot(df_dur, u_r))
+
 
 
 
@@ -263,14 +328,12 @@ class EulerDG:
 
         Dx   = self.getDerivativeMatrix()
         
-        P_l = self.getLeftFaceProj()  # Get Projection matrix of projecting onto left face of element
-        P_r = self.getRghtFaceProj()  # Get Projection matrix of projecting onto rght face of element
-    
         f  = self.getEulerFlux(var_dim, size, u)
 
 #        print(u)
 #        print(f)
-#        print(np.dot(P_r, f))
+
+        self.getDF_du_l(u) # Get DF/Du_L :Requires Jacobian matrix of u_L 
 
 
 
