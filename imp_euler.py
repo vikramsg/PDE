@@ -334,7 +334,6 @@ class EulerDG:
                 P_R[vd*num_faces + i, size*vd + rght*Np:size*vd + rght*Np + Np] = l_R 
 
 #        print(P_L)
-
 #        self.plot_coo_matrix(P_R)
 
         return P_L, P_R
@@ -356,9 +355,6 @@ class EulerDG:
         df_dul = np.zeros( (var_dim*num_faces, var_dim*num_faces) )
         df_dur = np.zeros( (var_dim*num_faces, var_dim*num_faces) )
 
-#        for i in range(var_dim*num_faces):
-#            print(u_l[i], u_r[i])
-
         u_f_l = np.zeros(var_dim)
         u_f_r = np.zeros(var_dim)
         for i in range(num_faces):
@@ -374,16 +370,45 @@ class EulerDG:
                     df_dul[v1*num_faces + i, v2*num_faces + i] = j_p_l[v1, v2] 
                     df_dur[v1*num_faces + i, v2*num_faces + i] = j_p_r[v1, v2] 
 
-#            print(df_dul)
-
 #        self.plot_coo_matrix(df_dul)
 
 #        print(u_l)
 #        print(np.dot(df_dul, u_l))
 #        print(np.dot(df_dur, u_r))
 
-
         return df_dul, df_dur
+
+
+    def getLFFlux(self, u_l, u_r, f_l, f_r):
+        rho_l   = u_l[0]
+        rho_u_l = u_l[1]
+        rho_e_l = u_l[2]
+        
+        rho_r   = u_r[0]
+        rho_u_r = u_r[1]
+        rho_e_r = u_r[2]
+
+        v_l     = rho_u_l/rho_l
+        v_l_sq  = v_l*v_l
+
+        p_l     = (self.gamm - 1)*(rho_e_l - 0.5*rho_l*v_l_sq)
+
+        a_l     = np.sqrt(self.gamm*p_l/rho_l)
+
+        v_r     = rho_u_r/rho_r
+        v_r_sq  = v_r*v_r
+
+        p_r     = (self.gamm - 1)*(rho_e_r - 0.5*rho_r*v_r_sq)
+
+        a_r     = np.sqrt(self.gamm*p_r/rho_r)
+
+        lambd   = np.max( (a_l + np.sqrt(v_l_sq), a_r + np.sqrt(v_r_sq)) )
+
+#        f_I     = 0.5*(f_l + f_r) - lambd*(u_r - u_l)
+        f_I     = 0.5*(f_l + f_r) 
+
+        return f_I
+
 
 
     def getCommonFlux(self, u_l, u_r, f_l, f_r):
@@ -397,23 +422,25 @@ class EulerDG:
 
         fl_point = np.zeros(var_dim)
         fr_point = np.zeros(var_dim)
+        
+        f_I = np.zeros_like(f_l)
+
         for i in range(num_faces):
             for j in range(var_dim):
                 ul_point[j] = u_l[j*num_faces + i]
                 ur_point[j] = u_r[j*num_faces + i]
                 fr_point[j] = f_r[j*num_faces + i]
                 fl_point[j] = f_l[j*num_faces + i]
-#            sub = 2
-#            print(i, ul_point[sub], ur_point[sub], fl_point[sub], fr_point[sub])
+            f_I_point = self.getLFFlux(ul_point, ur_point, fl_point, fr_point)
+            for j in range(var_dim):
+                f_I[j*num_faces + i] = f_I_point[j] 
 
-        f_I = np.zeros_like(f_l)
-
-        f_I = f_l # Naive upwinding
+#        f_I = f_l # Naive upwinding
 
         return f_I
 
 
-    def get_rhs(self, u, dt):
+    def get_rhs(self, u):
         var_dim   = self.var_dim
         elements  = self.elements 
         num_faces = self.num_faces
@@ -421,29 +448,29 @@ class EulerDG:
 
         size      = elements*Np
 
-        F_u       = self.getEulerJacobian(var_dim, size, u)
-
         Dx        = self.Dx 
         
-        f         = self.getEulerFlux(var_dim, size, u)
-
-        fd_u      = np.dot( F_u, Dx ) # Jacobian x Derivative
-
-        f_x       = np.dot( fd_u, u ) # Discontinuous derivatives
-
         P_l  = self.P_l; P_r = self.P_r 
         G_l  = self.G_l; G_r = self.G_r 
+
+        F_u       = self.getEulerJacobian(var_dim, size, u)
+        fd_u      = np.dot( F_u, Dx ) # Jacobian x Derivative
+
+        """
+        The following lines were written to mimic the explicit rhs evaluation
+        pointwise. We are trying to get the same by using Jacobian operations
+        directly on the solution vector in the actual evaluations
+
+        f_x       = np.dot( fd_u, u ) # Discontinuous derivatives
 
         u_l = np.dot(P_l, u) # Get face projections on the left side
         u_r = np.dot(P_r, u) # Get face projections on the left side
 
         f_l = self.getEulerFlux(var_dim, num_faces, u_l) # Get flux from the projected state
         f_r = self.getEulerFlux(var_dim, num_faces, u_r)
-        
         f_I = self.getCommonFlux(u_l, u_r, f_l, f_r) # Common flux at faces
-
         rhs = f_x + np.dot( G_l, f_I - f_l ) + np.dot( G_r, f_I - f_r )
-
+        
         x_r = self.x_r
         size = elements * Np
         for i in range(var_dim):
@@ -451,22 +478,91 @@ class EulerDG:
                 for k in range(Np):
                     sub = i*size + j*Np + k
                     rhs[sub] = -1*rhs[sub]/x_r[j]
+
+        rhs_operator = np.zeros_like(Dx)
+        """
         
-        return rhs
+        F_u       = self.getEulerJacobian(var_dim, size, u)
+        fd_u      = np.dot( F_u, Dx ) # Jacobian x Derivative
+   
+        df_dul, df_dur = self.getDF_du_l(u) # Get Jacobian of flux against left and right states
+
+        f_l_u = np.dot( df_dul, P_l )
+        f_r_u = np.dot( df_dur, P_r )
+
+        rhs_operator = fd_u + ( np.dot(G_l, 0.5*(f_l_u + f_r_u) - f_l_u) +  
+                                np.dot(G_r, 0.5*(f_l_u + f_r_u) - f_r_u) )
+
+        m = np.zeros_like(rhs_operator)
+
+        x_r = self.x_r
+        size = elements * Np
+        for i in range(var_dim):
+            for j in range(elements):
+                for k in range(Np):
+                    sub = i*size + j*Np + k
+                    m[sub, sub] = 1./x_r[j] # Inverse of size matrix
+
+        rhs_operator = np.dot( m, rhs_operator )
+        rhs          = np.dot(rhs_operator, u) 
+
+        rhs = -1*rhs
+
+        return rhs_operator, rhs
+
+
+    def bdf(self, dt, u, rhs_fn):
+        tol = 2E-15
+
+        J, rhs = rhs_fn(u)
+
+        size   = u.shape[0]
+
+        I_lhs  = (1/dt)*np.identity(size)
+
+        R_u    = I_lhs + J
+
+        R_u_inv = np.linalg.inv(R_u) # Numpy used LU factorization to solve for inverse
+
+        y       = u
+        for i in range(25):
+            J, rhs  = rhs_fn(y)
+        
+            R_u     = I_lhs + J
+            R_u_inv = np.linalg.inv(R_u) # Numpy used LU factorization to solve for inverse
+
+            res     = -( (1./dt)*y - (1./dt)*u  - rhs )
+
+            dy      = np.dot( R_u_inv, res ) 
+
+            y       = y + dy
+
+            max_res = np.max(np.abs(dy))
+
+            if ( max_res < tol ):
+                break
+
+#        print("max residual was ", max_res)
+
+        u = y
+
+        return u
+
+
 
 
     def ssp_rk43(self, dt, u, rhs_fn):
-        rhs =  rhs_fn(u, dt)
-        y   =  u + (1.0/2)*dt*rhs
+        J, rhs =  rhs_fn(u)
+        y      =  u + (1.0/2)*dt*rhs
 
-        rhs =  rhs_fn(y, dt)
-        y   =  y + (1.0/2)*dt*rhs
+        J, rhs =  rhs_fn(y)
+        y      =  y + (1.0/2)*dt*rhs
         
-        rhs =  rhs_fn(y, dt)
-        y   =  (2.0/3)*u  + (1.0/3)*y + (1/6)*dt*rhs
+        J, rhs =  rhs_fn(y)
+        y      =  (2.0/3)*u  + (1.0/3)*y + (1/6)*dt*rhs
 
-        rhs =  rhs_fn(y, dt)
-        u   =  y + (1.0/2)*dt*rhs 
+        J, rhs =  rhs_fn(y)
+        u      =  y + (1.0/2)*dt*rhs 
 
         return u 
 
@@ -479,7 +575,8 @@ class EulerDG:
 
         it_coun = 0
         while (T < T_final) :
-            u   = self.ssp_rk43(dt, u, self.get_rhs) 
+#            u   = self.ssp_rk43(dt, u, self.get_rhs) 
+            u = self.bdf(dt, u, self.get_rhs)
 
             T       = T + dt_real
             dt_real = min(dt, T_final - T)
@@ -546,7 +643,7 @@ class EulerDG:
 
 if __name__=="__main__":
     order    = 3
-    elements = 25
+    elements = 25 
     startX   = -1
     stopX    =  1
     
@@ -557,9 +654,9 @@ if __name__=="__main__":
     '''
     run     = EulerDG(order, elements, startX, stopX)
 
-    dt      = 0.002
+    dt      = 0.1  
 
-    T_final = 0.25
+    T_final = 1.55
     run.euler_solver(dt, T_final)
 
 
