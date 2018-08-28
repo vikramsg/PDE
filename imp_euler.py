@@ -506,6 +506,8 @@ class EulerDG:
         rhs_operator = np.dot( m, rhs_operator )
         rhs          = np.dot(rhs_operator, u) 
 
+#        self.plot_coo_matrix(rhs_operator)
+
         rhs = -1*rhs
 
         return rhs_operator, rhs
@@ -548,6 +550,76 @@ class EulerDG:
 
         return u
 
+ 
+    def dirk_23(self, dt, u, rhs_fn):
+        """
+        2 stage 3rd order DIRK from
+        DIRK methods for stiff odes - Roger Alexander 1977
+        """
+        tol      = 2E-15
+        max_iter = 25
+
+        a11      = 0.5 + 0.5*(1./np.sqrt(3))
+        a21      =          -(1./np.sqrt(3))
+        a22      = 0.5 + 0.5*(1./np.sqrt(3))
+        
+        b1       = 0.5 
+        b2       = 0.5 
+
+        size     = u.shape[0]
+
+        I        = np.identity(size)
+
+        # Stage 1
+
+        y       = u
+        for i in range(max_iter):
+            J, rhs  = rhs_fn(y)
+        
+            R_u     = (1./ (a11*dt) )*I + J
+            R_u_inv = np.linalg.inv(R_u) # Numpy used LU factorization to solve for inverse
+
+            res     = -( (1./( a11*dt ) )*y - (1./ ( a11*dt ) )*u  - rhs )
+
+            dy      = np.dot( R_u_inv, res ) 
+
+            y       = y + dy
+
+            max_res = np.max(np.abs(dy))
+
+            if ( max_res < tol ):
+                break
+
+        y1      = y
+        J, rhs1 = rhs_fn(y1)
+
+        # Stage 2
+
+        y = y1
+        for i in range(max_iter):
+            J, rhs  = rhs_fn(y)
+        
+            R_u     = (1./ (a22*dt) )*I + J
+            R_u_inv = np.linalg.inv(R_u) # Numpy used LU factorization to solve for inverse
+
+            res     = -( (1./( a22*dt ) )*y - (1./ ( a22*dt ) )*u  - (a21/a22)*rhs1 - rhs )
+
+            dy      = np.dot( R_u_inv, res ) 
+
+            y       = y + dy
+
+            max_res = np.max(np.abs(dy))
+
+            if ( max_res < tol ):
+                break
+
+        y2      = y
+        J, rhs2 = rhs_fn(y2)
+
+        u = u + dt*b1*rhs1 + dt*b2*rhs2
+
+        return u
+
 
 
 
@@ -576,7 +648,7 @@ class EulerDG:
         it_coun = 0
         while (T < T_final) :
 #            u   = self.ssp_rk43(dt, u, self.get_rhs) 
-            u = self.bdf(dt, u, self.get_rhs)
+            u = self.dirk_23(dt, u, self.get_rhs)
 
             T       = T + dt_real
             dt_real = min(dt, T_final - T)
@@ -637,8 +709,10 @@ class EulerDG:
 
         ax.set_xticks([])
         ax.set_yticks([])
+
+#        plt.savefig('system_jacobian.png', format = 'png')
    
-        plt.show()
+#        plt.show()
  
 
 if __name__=="__main__":
@@ -654,7 +728,7 @@ if __name__=="__main__":
     '''
     run     = EulerDG(order, elements, startX, stopX)
 
-    dt      = 0.1  
+    dt      = 0.1   
 
     T_final = 1.55
     run.euler_solver(dt, T_final)
