@@ -613,6 +613,8 @@ class EulerDG:
             if ( max_res < tol ):
                 break
 
+        print("max residual is ", max_res)
+
         y2      = y
         J, rhs2 = rhs_fn(y2)
 
@@ -645,15 +647,26 @@ class EulerDG:
         T   = 0
         dt_real = min(dt, T_final - T)
 
+        """
+        1: SSP RK43
+        2: BDF
+        3: DIRK 23
+        """
+        time_stepping = 3
+
         it_coun = 0
         while (T < T_final) :
-#            u   = self.ssp_rk43(dt, u, self.get_rhs) 
-            u = self.dirk_23(dt, u, self.get_rhs)
+            if (time_stepping == 1):
+                u   = self.ssp_rk43(dt, u, self.get_rhs) 
+            elif (time_stepping == 2):
+                u = self.bdf(dt, u, self.get_rhs)
+            elif (time_stepping == 3):
+                u = self.dirk_23(dt, u, self.get_rhs)
 
             T       = T + dt_real
             dt_real = min(dt, T_final - T)
 
-            if (it_coun % 10 == 0):
+            if (it_coun % 1  == 0):
                 print('Time: ', T, ' Max u: ', np.max(u))
 
             it_coun  = it_coun + 1
