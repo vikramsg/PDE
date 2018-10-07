@@ -622,6 +622,78 @@ class EulerDG:
 
         return u
 
+    def sdisbp_22(self, dt, u, rhs_fn):
+        """
+        2 stage 3rd order DIRK from
+        DIRK methods for stiff odes - Roger Alexander 1977
+        """
+        tol      = 2E-15
+        max_iter = 25
+
+        a11      = 1   -     (1./np.sqrt(2))
+        a21      =-1   +     (   np.sqrt(2))
+        a22      = 1   -     (1./np.sqrt(2))
+        
+        b1       = 0.5 
+        b2       = 0.5 
+
+        size     = u.shape[0]
+
+        I        = np.identity(size)
+
+        # Stage 1
+
+        y       = u
+        for i in range(max_iter):
+            J, rhs  = rhs_fn(y)
+        
+            R_u     = (1./ (a11*dt) )*I + J
+            R_u_inv = np.linalg.inv(R_u) # Numpy used LU factorization to solve for inverse
+
+            res     = -( (1./( a11*dt ) )*y - (1./ ( a11*dt ) )*u  - rhs )
+
+            dy      = np.dot( R_u_inv, res ) 
+
+            y       = y + dy
+
+            max_res = np.max(np.abs(dy))
+
+            if ( max_res < tol ):
+                break
+
+        y1      = y
+        J, rhs1 = rhs_fn(y1)
+
+        # Stage 2
+
+        y = y1
+        for i in range(max_iter):
+            J, rhs  = rhs_fn(y)
+        
+            R_u     = (1./ (a22*dt) )*I + J
+            R_u_inv = np.linalg.inv(R_u) # Numpy used LU factorization to solve for inverse
+
+            res     = -( (1./( a22*dt ) )*y - (1./ ( a22*dt ) )*u  - (a21/a22)*rhs1 - rhs )
+
+            dy      = np.dot( R_u_inv, res ) 
+
+            y       = y + dy
+
+            max_res = np.max(np.abs(dy))
+
+            if ( max_res < tol ):
+                break
+
+        print("max residual is ", max_res)
+
+        y2      = y
+        J, rhs2 = rhs_fn(y2)
+
+        u = u + dt*b1*rhs1 + dt*b2*rhs2
+
+        return u
+
+
 
 
 
@@ -651,8 +723,9 @@ class EulerDG:
         1: SSP RK43
         2: BDF
         3: DIRK 23
+        4: SDISBP 22
         """
-        time_stepping = 3
+        time_stepping = 4
 
         it_coun = 0
         while (T < T_final) :
@@ -662,6 +735,8 @@ class EulerDG:
                 u = self.bdf(dt, u, self.get_rhs)
             elif (time_stepping == 3):
                 u = self.dirk_23(dt, u, self.get_rhs)
+            elif (time_stepping == 4):
+                u = self.sdisbp_22(dt, u, self.get_rhs)
 
             T       = T + dt_real
             dt_real = min(dt, T_final - T)
