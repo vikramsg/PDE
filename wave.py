@@ -136,7 +136,7 @@ class WaveDG:
         return(u_d)
 
 
-    def getInteractionValues(self, u_d):
+    def getCentralFlux(self, u_d):
         elements = u_d.shape[0]
         Np       = u_d.shape[1]
 
@@ -145,17 +145,26 @@ class WaveDG:
         alpha = 0.5
 
         #Central flux
-#        for i in range(1, elements - 1):
-#            u_I[i, 0] = alpha*(u_d[i - 1, 1] + u_d[i    , 0] )
-#            u_I[i, 1] = alpha*(u_d[i    , 1] + u_d[i + 1, 0] )
-#
-#        # Periodic boundary
-#        u_I[0       , 0] = alpha*(u_d[elements - 1, 1] + u_d[0    , 0] )
-#        u_I[0       , 1] = alpha*(u_d[0           , 1] + u_d[0 + 1, 0] )
-#
-#        u_I[elements - 1, 0] = alpha*(u_d[elements - 2, 1] + u_d[elements - 1, 0] )
-#        u_I[elements - 1, 1] = alpha*(u_d[elements - 1, 1] + u_d[0           , 0] )
-#
+        for i in range(1, elements - 1):
+            u_I[i, 0] = alpha*(u_d[i - 1, 1] + u_d[i    , 0] )
+            u_I[i, 1] = alpha*(u_d[i    , 1] + u_d[i + 1, 0] )
+
+        # Periodic boundary
+        u_I[0       , 0] = alpha*(u_d[elements - 1, 1] + u_d[0    , 0] )
+        u_I[0       , 1] = alpha*(u_d[0           , 1] + u_d[0 + 1, 0] )
+
+        u_I[elements - 1, 0] = alpha*(u_d[elements - 2, 1] + u_d[elements - 1, 0] )
+        u_I[elements - 1, 1] = alpha*(u_d[elements - 1, 1] + u_d[0           , 0] )
+
+        return u_I
+
+
+    def getUpwindFlux(self, u_d):
+        elements = u_d.shape[0]
+        Np       = u_d.shape[1]
+
+        u_I = np.zeros((elements, 2))
+
         for i in range(1, elements - 1):
             u_I[i, 0] = u_d[i - 1, 1] 
             u_I[i, 1] = u_d[i    , 1] 
@@ -167,10 +176,32 @@ class WaveDG:
         u_I[elements - 1, 0] = u_d[elements - 2, 1] 
         u_I[elements - 1, 1] = u_d[elements - 1, 1] 
 
-
         return u_I
 
+
     def dg(self, u, dt):
+        rhs      = self.dg_1st(u, 1) 
+        rhs     *= -1.;
+
+        return rhs
+
+
+    def dg_2nd(self, u):
+        '''
+        Get second derivative using BR1
+        '''
+        q    = self.dg_1st(u, 1) 
+        rhs  = self.dg_1st(q, 1) 
+
+        return rhs
+
+
+    def dg_1st(self, u, fluxType = 0):
+        '''
+        Calculate first derivative 
+        fluxType = 0: Upwind
+        fluxType = 1: Central 
+        '''
         order     = self.order
         Np        = self.Np
         elements  = self.elements
@@ -185,18 +216,33 @@ class WaveDG:
         
         u_d       = self.getDiscontBnd(u )         # Get discontinuous values at element boundary
 
-        u_I       = self.getInteractionValues(u_d)
+        if (fluxType == 0):
+            u_I       = self.getUpwindFlux(u_d)
+        elif (fluxType == 1):
+            u_I       = self.getCentralFlux(u_d)
         
-        rhs       = np.zeros_like(u)
+        deri      = np.zeros_like(u)
 
         for i in range(elements):
-            rhs[i] = du[i]  
-            rhs[i] = rhs[i] + (u_I[i, 0] - u_d[i, 0])*dg_l 
-            rhs[i] = rhs[i] + (u_I[i, 1] - u_d[i, 1])*dg_r 
+            deri[i] = du[i]  
+            deri[i] = deri[i] + (u_I[i, 0] - u_d[i, 0])*dg_l 
+            deri[i] = deri[i] + (u_I[i, 1] - u_d[i, 1])*dg_r 
         
-            rhs[i] = -1*rhs[i]/x_r[i]
+            deri[i] = deri[i]/x_r[i]
 
-        return rhs
+        return deri 
+
+
+    def rk22(self, dt, u, rhs_fn):
+        # Heun's method 
+
+        rhs1 =  rhs_fn(u, dt)
+        y    =  u + dt*rhs1
+
+        rhs2 =  rhs_fn(y, dt)
+        u    =  u + 0.5*dt*rhs1 + 0.5*dt*rhs2
+        
+        return u 
 
     def ssp_rk43(self, dt, u, rhs_fn):
         rhs =  rhs_fn(u, dt)
@@ -243,6 +289,7 @@ class WaveDG:
         it_coun = 0
         while (T < T_final) :
             u   = self.ssp_rk33(dt, u, self.dg) 
+#            u   = self.rk22(dt, u, self.dg) 
 
             T       = T + dt_real
             dt_real = min(dt, T_final - T)
@@ -310,28 +357,32 @@ class WaveDG:
         print("L2 error is ", l2_error/(Np*elements))
 
     def fn(self, x):
-#        return 1.0 + 0.2*np.sin(np.pi*(x))
-        return np.exp(-40*(x)**2) 
+        return 1.0 + 0.2*np.sin(np.pi*(x))
+#        return np.exp(-40*(x)**2) 
 
 
 if __name__=="__main__":
-    order    = 5
-    elements = 25
-    startX   = -1
-    stopX    =  1
+    order    = 3
+    elements = 20
+    startX   = -1.
+    stopX    =  1.
+
+    CFL      =  0.9
     
     '''
     correctType 
     0: Radau
     1: Krivodnova , takes correcFac
     '''
-    run     = WaveDG(order, elements, startX, stopX, correcType = 1, correcFac = 1.0)
+    run     = WaveDG(order, elements, startX, stopX, correcType = 0, correcFac = 1.0)
 
-    dt      = 0.003  
+    h       = (stopX - startX)/elements
 
-    T_final = 8.0
-#    run.wave_solver(dt, T_final)
-    run.filtered_wave_solver(dt, T_final)
+    dt      = CFL*h/(2.*order + 1.)
+
+    T_final = 4.000
+    run.wave_solver(dt, T_final)
+#    run.filtered_wave_solver(dt, T_final)
 
     run.error()
 
