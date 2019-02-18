@@ -5,9 +5,12 @@ import matplotlib.pyplot as plt
 
 class WaveDG:
 
-    def __init__(self, order, elements, startX, stopX, correcType = 0, correcFac = 0.9):
+    def __init__(self, order, elements, startX, stopX, time_stepping = 0,
+                    correcType = 0, correcFac = 0.9):
         self.order    = order
         self.Np       = order + 1
+
+        self.ts       = time_stepping
 
         self.elements = elements 
         self.startX   = startX 
@@ -180,7 +183,7 @@ class WaveDG:
 
 
     def dg(self, u, dt):
-        rhs      = self.dg_1st(u, 1) 
+        rhs      = self.dg_1st(u, 0) 
         rhs     *= -1.;
 
         return rhs
@@ -190,8 +193,8 @@ class WaveDG:
         '''
         Get second derivative using BR1
         '''
-        q    = self.dg_1st(u, 1) 
-        rhs  = self.dg_1st(q, 1) 
+        q    = self.dg_1st(u, 0) 
+        rhs  = self.dg_1st(q, 0) 
 
         return rhs
 
@@ -233,6 +236,67 @@ class WaveDG:
         return deri 
 
 
+    def stabilized_2s(self, dt, u):
+        # Stabilized 2 stage method 
+
+        u0    = u
+
+        rhs1  =  self.dg_1st(u, 0)
+        rhs1 *= -1.;
+        y     =  u + dt*rhs1
+
+        d1    =  -1.*self.dg_2nd(u) # Second derivative of u_0
+        d2    =  -1.*self.dg_2nd(y) # Second derivative of u_1
+
+        rhs2  =  self.dg_1st(y, 0)
+        rhs2 *= -1.;
+        u     =  u + 0.5*dt*rhs1 + 0.5*dt*rhs2 + (dt**2/12.)*(d1 - d2)
+
+        elements = u.shape[0]
+        Np       = u.shape[1]
+
+        for i in range(elements):
+            u0l  = u0[i]
+            ul   = u[i]
+            f1   = rhs1[i]
+            f2   = rhs2[i]
+            eps1 = np.zeros_like(ul)
+
+            en_norm = np.dot(ul, ul)/np.dot(u0l, u0l)
+
+            den  = np.dot(u0l, u0l)
+            if (den > 1E-14):
+                eps1 = ( 0.25*dt**2*np.dot(f1 - f2, f1 - f2) )/np.dot(u0l, u0l)
+
+            if en_norm > 1:
+                u[i]   =  u0[i] + ( 
+                            0.5*dt*rhs1[i] + 0.5*dt*rhs2[i] + (dt**2/12.)*(d1[i] - d2[i]) )/np.sqrt(
+                                    1 + eps1)
+
+        return u 
+
+
+
+    def stabilized_23s(self, dt, u):
+        # Stabilized 2 stage method third order
+
+        rhs1  =  self.dg_1st(u, 0)
+        rhs1 *= -1.;
+
+        d1    =  -1.*self.dg_2nd(u) # Second derivative of u_0
+
+        y     =  u + dt*rhs1 - ( dt**2/3. )*d1
+
+        d2    =  -1.*self.dg_2nd(y) # Second derivative of u_1
+
+        rhs2  =  self.dg_1st(y, 0)
+        rhs2 *= -1.;
+
+        u     =  u + 0.5*dt*rhs1 + 0.5*dt*rhs2 + (1./14.)*( (dt**2)*(d1 - d2) )
+
+        return u 
+
+
     def rk22(self, dt, u, rhs_fn):
         # Heun's method 
 
@@ -242,7 +306,98 @@ class WaveDG:
         rhs2 =  rhs_fn(y, dt)
         u    =  u + 0.5*dt*rhs1 + 0.5*dt*rhs2
         
+        unf  = np.ndarray.flatten(u)
+        print("dt is ", dt , " energy is ", np.dot( unf, unf ))
+        
         return u 
+
+    def adapt_rk22(self, dt, u, rhs_fn):
+        # Heun's method 
+
+        dt_0  =  dt
+
+        b1    = np.array( [1.0, 0.0] )
+        b2    = np.array( [0.5, 0.5] )
+        w     = np.array( [0., 2.] )
+
+        eta1 =  u
+        f1   =  rhs_fn(u, dt_0)
+
+        flag = 0
+        while flag == 0:
+            eta2  =  u + dt_0*f1
+            f2    =  rhs_fn(eta2, dt)
+
+            eta1f = np.ndarray.flatten(eta1)
+            f1f   = np.ndarray.flatten(f1)
+
+            eta2f = np.ndarray.flatten(eta2)
+            f2f   = np.ndarray.flatten(f2)
+
+            num   = b2[0]*np.dot( eta1f, f1f ) + b2[1]*np.dot( eta2f, f2f )
+            denom = w[1]*b2[1]*np.sqrt( np.dot( eta2f, eta2f ) )
+    
+            un    =  u + 0.5*dt_0*f1 + 0.5*dt_0*f2
+            vn    =  u + 0.5*dt_0
+
+            unf   = np.ndarray.flatten(un)
+            vnf   = np.ndarray.flatten(vn)
+
+            lhs   = np.sqrt( np.dot(unf - vnf, unf - vnf) )
+            rhs   = dt_0*np.abs( num/denom )
+            
+            E     = ( b1[0] - b2[0] )*f1 + ( b1[1] - b2[1] )*f2 
+            Ef    = np.ndarray.flatten(E)
+
+            check = np.dot(eta2f, Ef)
+
+            print(dt_0, lhs, rhs, check)
+
+            if (lhs > rhs) and ( rhs > 1E-6):
+                dt_0 *= 0.5
+            else:
+                flag = 1
+
+        u = un
+
+        print("dt init is ", dt ,"dt is ", dt_0, " energy is ", np.dot( unf, unf ))
+#        print("dt init is ", dt ,"dt is ", dt_0, " energy is ", np.dot( unf, unf ))
+
+        return u, dt_0
+
+
+    def stab_rk22(self, dt, u, rhs_fn):
+        # Heun's method
+
+        u0   = u
+
+        rhs1 =  rhs_fn(u, dt)
+        y    =  u + dt*rhs1
+
+        rhs2 =  rhs_fn(y, dt)
+        u    =  u + 0.5*dt*rhs1 + 0.5*dt*( rhs2 )
+
+        elements = u.shape[0]
+        Np       = u.shape[1]
+
+        for i in range(elements):
+            u0l  = u0[i]
+            ul   = u[i]
+            f1   = rhs1[i]
+            f2   = rhs2[i]
+            eps1 = np.zeros_like(ul)
+
+            en_norm = np.dot(ul, ul)/np.dot(u0l, u0l)
+
+            den  = np.dot(u0l, u0l)
+            if (den > 1E-14):
+                eps1 = ( 0.25*dt**2*np.dot(f1 - f2, f1 - f2) )/np.dot(u0l, u0l)
+
+            if en_norm > 1:
+                u[i] = u[i]/np.sqrt(1 + eps1)
+
+        return u 
+
 
     def ssp_rk43(self, dt, u, rhs_fn):
         rhs =  rhs_fn(u, dt)
@@ -263,6 +418,7 @@ class WaveDG:
     def euler(self, dt, u, rhs_fn):
         return u + dt*rhs_fn(u, dt)
 
+
     def ssp_rk33(self, dt, u, rhs_fn):
         # x1 = x + k0, t1 = t + dt, k1 = dt*f(t1, x1)
         # x2 = 3/4*x + 1/4*(x1 + k1), t2 = t + 1/2*dt, k2 = dt*f(t2, x2)
@@ -281,27 +437,40 @@ class WaveDG:
 
 
     def wave_solver(self, dt, T_final):
-        u   = self.u
+        u       = self.u
 
-        T   = 0
+        T       = 0
         dt_real = min(dt, T_final - T)
+        dt_act  = dt_real 
 
         it_coun = 0
-        while (T < T_final) :
-            u   = self.ssp_rk33(dt, u, self.dg) 
-#            u   = self.rk22(dt, u, self.dg) 
 
-            T       = T + dt_real
-            dt_real = min(dt, T_final - T)
+        u, dt_act   = self.adapt_rk22(dt_real, u, self.dg) 
 
-            if (it_coun % 10 == 0):
-                print('Time: ', T, ' Max u: ', np.max(u))
-
-            it_coun  = it_coun + 1
-
-        self.u = u
-        
-        self.plot(self.intPoints, u)
+#        while (T < T_final) :
+#            if self.ts   == 0:
+#                u           = self.rk22(dt_real, u, self.dg) 
+#            elif self.ts == 1:
+#                u, dt_act   = self.adapt_rk22(dt_real, u, self.dg) 
+#            else:
+#                raise NotImplementedError
+#
+#            T       = T + dt_act
+#            dt_real = min(dt, T_final - T)
+#            dt_act  = dt_real 
+#
+#            uflat   = np.ndarray.flatten(u) 
+#
+##            if (it_coun % 10 == 0):
+##                print('Time: ', T, ' Max u: ', np.max(u), ' Energy: ',  np.dot(uflat, uflat) )
+#
+#            it_coun  = it_coun + 1
+#
+#        self.u = u
+#
+#        print(" Iterations is ", it_coun)
+#        
+#        self.plot(self.intPoints, u)
 
     def filter_van(self, u):
         order    = self.order
@@ -357,30 +526,32 @@ class WaveDG:
         print("L2 error is ", l2_error/(Np*elements))
 
     def fn(self, x):
-        return 1.0 + 0.2*np.sin(np.pi*(x))
-#        return np.exp(-40*(x)**2) 
+#        return 1.0 + 0.2*np.sin(np.pi*(x))
+        return 1 + np.exp(-10*(x)**2) 
 
 
 if __name__=="__main__":
     order    = 3
-    elements = 20
+    elements = 25
     startX   = -1.
     stopX    =  1.
 
-    CFL      =  0.9
+    CFL      =  0.9 
     
     '''
     correctType 
     0: Radau
     1: Krivodnova , takes correcFac
     '''
-    run     = WaveDG(order, elements, startX, stopX, correcType = 0, correcFac = 1.0)
+    run     = WaveDG(order, elements, startX, stopX, 
+                        time_stepping = 1,
+                        correcType = 0, correcFac = 1.0)
 
     h       = (stopX - startX)/elements
 
     dt      = CFL*h/(2.*order + 1.)
 
-    T_final = 4.000
+    T_final = 2.0  
     run.wave_solver(dt, T_final)
 #    run.filtered_wave_solver(dt, T_final)
 
